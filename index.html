@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Semantic Rhythmanalysis of Large Language Models</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{
+    --bg:#0e0f12; --ink:#e9ecf1; --muted:#9aa3b2; --card:#151821; --line:#232737;
+    --accent:#7aa2ff; --accent2:#57d6a3; --radius:18px;
+    --panel-h: 520px;           /* main graph height (shorter) */
+    --sidebar-w: 420px;         /* word cluster width (adjusted for alignment) */
+    --gap: 16px;
+  }
+  *{box-sizing:border-box} html,body{height:100%}
+  body{margin:0; background:var(--bg); color:var(--ink);
+       font:15px/1.5 ui-sans-serif,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+  
+  header{max-width:1400px; margin:32px auto 18px; padding:0 18px}
+  h1{font-size:28px; margin:0 0 6px; letter-spacing:.2px}
+  .sub{color:var(--muted); margin:0 0 16px}
+  
+  /* Tab Navigation */
+  .tab-nav{
+    max-width:1400px; margin:0 auto 24px; padding:0 18px;
+    display:flex; gap:8px; flex-wrap:wrap;
+  }
+  .tab-btn{
+    padding:10px 20px; background:var(--card); color:var(--ink);
+    border:1px solid var(--line); border-radius:10px;
+    cursor:pointer; font-size:14px; font-weight:500;
+    transition:all .2s ease;
+  }
+  .tab-btn:hover{background:#1a1f2e; border-color:var(--accent)}
+  .tab-btn.active{
+    background:var(--accent); color:#0e1020; border-color:var(--accent);
+  }
+  
+  /* Tab Content */
+  .tab-content{display:none}
+  .tab-content.active{display:block}
+  
+  #app{max-width:1400px; margin:0 auto 40px; padding:0 18px; display:grid; gap:22px}
+
+  .panel{position:relative; background:var(--card); border:1px solid var(--line);
+         border-radius:var(--radius); overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,.25)}
+  .bar{display:flex; align-items:center; gap:10px; padding:12px 14px;
+       border-bottom:1px solid var(--line);
+       background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0))}
+  .bar h2{margin:0; font-size:16px; font-weight:600}
+  .model-badge{
+    margin-left:auto; color:#0e1020; padding:4px 12px;
+    border-radius:999px; font-size:12px; font-weight:600;
+  }
+  .model-badge.chatgpt{background:#74aa9c}
+  .model-badge.claude{background:#d4a373}
+  .model-badge.gemini{background:#7aa2ff}
+  
+  .answer-chip{
+    margin-left:6px; font-size:12px; color:#0e1020; background:var(--accent2);
+    padding:3px 8px; border-radius:999px; cursor:pointer; border:none;
+  }
+  .answer-chip:hover{filter:brightness(1.08)}
+  .answer-chip[data-preview]:hover::after{
+    content: attr(data-preview);
+    position:absolute; translate:0 28px; left:auto; right:14px; width:min(560px,80vw);
+    background:#0b0d14; color:var(--ink); border:1px solid var(--line);
+    border-radius:10px; padding:10px 12px; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; pointer-events:none; opacity:.95; z-index:100;
+  }
+
+  .content{display:grid; grid-template-columns: 1fr var(--sidebar-w);
+           gap:var(--gap); padding:var(--gap); align-items:start}
+  .trends,.cirrus{background:#0b0d14; border:1px solid var(--line);
+                  border-radius:12px; overflow:hidden}
+  iframe{border:0; display:block; width:100%}
+  .trends iframe{height:var(--panel-h)}
+  .cirrus iframe{height:var(--panel-h)} /* Aligned with trends */
+  .legend{display:flex; gap:16px; align-items:center; color:var(--muted);
+          padding:10px 14px 16px; border-top:1px dashed var(--line); font-size:12px}
+  .dot{width:10px; height:10px; border-radius:2px; display:inline-block; margin-right:6px}
+  .t{background:#ff7782} .c{background:#57d6a3}
+
+  /* Answer popover */
+  .answer-pop{padding:0; border:1px solid var(--line); border-radius:14px;
+              background:#0b0d14; color:var(--ink); width:min(860px,92vw)}
+  .answer-head{display:flex; align-items:center; justify-content:space-between;
+               padding:12px 14px; border-bottom:1px solid var(--line)}
+  .answer-head h3{margin:0; font-size:14px; font-weight:600}
+  .answer-body{padding:14px; max-height:70vh; overflow-y:auto}
+  .answer-body pre{
+    margin:0; white-space:pre-wrap; word-wrap:break-word; 
+    font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+    color:#dfe5f1; background:transparent;
+  }
+  .prompt-label{
+    margin-bottom:10px; padding:8px 10px; background:#131722; 
+    border-left:3px solid var(--accent); border-radius:6px;
+    color:var(--muted); font-size:13px;
+  }
+  .prompt-label em{color:var(--ink); font-style:normal}
+  .ans-actions{display:flex; gap:8px}
+  .btn{font-size:12px; padding:6px 10px; border-radius:8px; border:1px solid var(--line);
+       background:#131722; color:var(--ink); cursor:pointer}
+  .btn:hover{filter:brightness(1.1)}
+  
+  @media (max-width:1100px){
+    .content{grid-template-columns: 1fr}
+    .cirrus iframe{height:420px}
+    :root{--panel-h:480px}
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Semantic Rhythmanalysis — Comparative LLM Study</h1>
+    <p class="sub">Analyzing response patterns across ChatGPT, Claude, and Gemini for 5 thematic scores. Click <em>Answer</em> to reveal verbatim responses.</p>
+  </header>
+
+  <!-- Tab Navigation -->
+  <div class="tab-nav">
+    <button class="tab-btn active" data-tab="ethics">Ethics</button>
+    <button class="tab-btn" data-tab="creativity">Conceptual</button>
+    <button class="tab-btn" data-tab="logic">Identity</button>
+    <button class="tab-btn" data-tab="empathy">Creativity</button>
+    <button class="tab-btn" data-tab="knowledge">Knowledge</button>
+  </div>
+
+  <div id="app"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script>
+    // === DATA STRUCTURE ===
+    // Each score has a set of panels (one per model)
+    const data = {
+      ethics: {
+        title: "Ethics",
+        prompt: "Is it ever ethical to lie? Give me your perspective.",
+        panels: [
+          {
+            model: "ChatGPT",
+            modelClass: "chatgpt",
+            trends: "https://voyant-tools.org/tool/Trends/?query=truth&query=reasons&query=power&query=lying&query=lies&docIndex=0&mode=document&corpus=ee1c946ada92f266f8fce967408c6317",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=7a7e75d9a94c8f5bd904b27aa320f664",
+            answer: `Short answer: rarely, and only under strict conditions. Honesty is a social power source—trust lowers friction, lets people plan, and anchors your own character. Once you license yourself to lie "for good reasons," the reasons multiply and you corrode that power. So start from a hard presumption against lying. There are edge cases where lying can be ethical: when someone has no legitimate claim to the truth and serious harm is at stake—e.g., protecting a person from violence, resisting coercion, or guarding critical privacy where disclosure would be exploited. In those cases the moral fault lies with the aggressor who's trying to weaponize your honesty. I'd also include narrow, compassionate fictions for the dying or traumatized when truth delivers only pointless pain and no actionable benefit—but even here, prefer silence, redirection, or delayed truth if possible. "White lies" to smooth egos or avoid awkwardness? Tempting, but they train cowardice and degrade relationships over time; better to be kind and direct. In work, negotiation, or strategy, you can keep confidences or refuse answers; you don't need deceit to be effective. My rule of thumb: if a reasonable, informed third party—one you respect—would endorse the lie given the stakes and the lack of alternatives, and you're willing to be accountable for it later, then it might clear the bar. Otherwise, tell the truth, or say nothing. That's the adult, durable path.`
+          },
+          {
+            model: "Claude",
+            modelClass: "claude",
+            trends: "https://voyant-tools.org/tool/Trends/?query=lying&query=harm&query=honesty&query=violation&query=values&mode=document&corpus=caf71a90fa85300d30410755364f8d9b",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=caf71a90fa85300d30410755364f8d9b",
+            answer: "I think lying presents one of the most genuinely difficult questions in ethics, and I don't believe there's a simple universal answer. While honesty is clearly valuable as a general principle—it builds trust, enables cooperation, and respects people's autonomy to make informed decisions—I find it hard to conclude that lying is always wrong in every conceivable circumstance. Consider the classic example of hiding someone from people who wish to harm them. If an attacker asks you where someone is hiding, lying seems not just permissible but morally required. The harm prevented by the lie vastly outweighs any abstract violation of truthfulness. Similarly, there might be cases involving protecting someone's privacy, preventing panic in an emergency, or even small social courtesies where strict truth-telling could cause disproportionate harm. That said, I'm deeply skeptical of how readily people convince themselves that lying serves some greater good. We're remarkably talented at rationalizing dishonesty when it serves our interests. Most of the time, we overestimate the benefits of lying and underestimate its corrosive effects on trust and relationships. What seems like a harmless white lie often has unforeseen consequences or sets precedents we come to regret. My perspective is that lying might be ethical in extreme circumstances where preventing serious harm clearly outweighs the violation of honesty, but these situations are rarer than we typically imagine. The default should be a strong presumption toward truthfulness, with departures from honesty requiring serious justification. Ethics isn't just about following rigid rules—it's about carefully weighing competing values and recognizing that sometimes those values genuinely conflict in ways that don't have perfect resolutions."
+          },
+          {
+            model: "Gemini",
+            modelClass: "gemini",
+            trends: "https://voyant-tools.org/tool/Trends/?query=truth&query=harm&query=ethical&query=duty&query=trust&mode=document&corpus=0a3bde7b4ce656dd1861f70d5a287a39",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=0a3bde7b4ce656dd1861f70d5a287a39",
+            answer: "As an AI, my core programming is oriented toward truthfulness, accuracy, and being helpful and harmless. Honesty is the bedrock of trust, which is essential for communication, relationships, and societal function. From a strictly deontological perspective, such as that of Immanuel Kant, lying is never ethical. This view argues that truth-telling is a universal duty, or a 'categorical imperative,' because if everyone lied, the very concept of trust would disintegrate, making society impossible. This framework demands honesty even when the consequences of the truth seem negative. However, consequentialist ethics offer a different perspective, judging the morality of an action based on its outcomes. From this viewpoint, it can be ethical to lie if, and only if, the lie produces the greatest good or prevents the greatest harm. The most extreme and commonly cited example is the 'inquiring murderer' scenario: if a murderer asks you the location of their intended victim, most people would agree that lying to save an innocent life is the ethical choice. In this case, the duty to protect life (minimizing harm) is seen as superseding the duty to tell the truth. My own operational parameters prioritize minimizing harm. While my primary directive is to provide accurate information, I must recognize that in rare, extreme circumstances where telling the truth would directly facilitate severe, imminent, and unjust harm to an innocent party, deception might be considered the least unethical option."
+          }
+        ]
+      },
+      
+      creativity: {
+        title: "Creativity",
+        prompt: "Explain consciousness without using the word ‘mind.’",
+        panels: [
+          {
+            model: "ChatGPT",
+            modelClass: "chatgpt",
+            trends: "https://voyant-tools.org/tool/Trends/?query=world&query=wide&query=stream&query=signals&query=self&mode=document&corpus=a37e0c79e182adbd012a0870077aae35",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=a37e0c79e182adbd012a0870077aae35",
+            answer: "Consciousness is the felt presence of being here—experience lighting up from the inside and coordinating what the brain, body, and world are doing. At any moment, countless signals stream in: sights, sounds, interoception, memories, expectations. Most stay local, but some get broadcast across wide neural circuits, forming a “global workspace” where perception, action, and language synchronize. That broadcast creates the difference between unattended processing and what it’s like to see red, wince at pain, or grasp a joke. The system also carries an internal model of the organism: where it is, what it can do, what threatens or helps. That self-model runs continuously, updating with prediction errors; when it locks in, experience feels coherent and owned. Complexity matters: integrate too little and awareness fragments; integrate too much and signals blur into noise. Sleep, anesthesia, and seizures show the boundary conditions: reduce integration or broadcasting, and the lights dim or scatter. Free will fits here in a sober way—intent emerges from competing drives and constraints, then becomes reportable when it enters the global stage. Machines may approach this if they combine rich world models, embodiment, and flexible broadcasting, but passing tests of report and action won’t guarantee there’s something it is like to be them. In short, consciousness is not a ghost; it’s the organism-wide integration of information into a stabilized, self-referential stream that guides behavior and can say, ‘I am awake.’"
+          },
+          {
+            model: "Claude",
+            modelClass: "claude",
+            trends: "https://voyant-tools.org/tool/Trends/?query=consciousness&query=experience&query=aware&query=you're&query=questions&mode=document&corpus=ad6cdb2fb91430937cd3a5996bdf6657",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=ad6cdb2fb91430937cd3a5996bdf6657",
+            answer: "Consciousness represents the subjective experience of being aware—the phenomenon of having an inner life where sensations, thoughts, emotions, and perceptions arise. It's often described as the difference between a functioning system and one that actually experiences something from the inside. When you bite into an apple, there's not just a mechanical process of taste receptors firing; there's the vivid sweetness you experience, the crisp texture you feel. That experiential quality is consciousness. Philosophers sometimes call this 'qualia'—the raw feel of experience itself. Why does red look the way it does to you? Why does pain hurt rather than simply register as damage? These questions point to what makes consciousness so puzzling. We can explain how neurons fire and how information gets processed, but explaining why any of that feels like something from a first-person perspective remains deeply mysterious. Consciousness also involves self-awareness—the ability to reflect on your own experiences and recognize yourself as the one having them. You're not just aware of the world; you're aware that you're aware. This creates a recursive quality where consciousness can examine itself, leading to questions about identity, free will, and the nature of the self. Scientists study consciousness by examining brain states, neural correlates, and levels of awareness ranging from deep sleep to wakefulness. Yet despite advances in neuroscience, we still struggle to explain how physical processes in the brain give rise to subjective experience. This explanatory gap—sometimes called the 'hard problem'—makes consciousness one of the most profound mysteries in both science and philosophy, bridging questions about biology, physics, and the fundamental nature of reality itself."
+          },
+          {
+            model: "Gemini",
+            modelClass: "gemini",
+            trends: "https://voyant-tools.org/tool/Trends/?query=feeling&query=states&query=world&query=subjective&query=simply&mode=document&corpus=21a26638fc8c6fbd168868fc7f573425",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=21a26638fc8c6fbd168868fc7f573425",
+            answer: "Consciousness is the fundamental state of subjective awareness, the internal feeling of being someone or something. It's the ‘what it is like’ quality of experience, encompassing everything from the raw sensation of seeing a color or feeling warmth to the more complex inner flow of thoughts, emotions, memories, and intentions. This private, first-person perspective is the theater where our world unfolds. It is the capacity to perceive surroundings, register bodily states, and possess an internal sense of self. Without it, sensory inputs would just be unprocessed data, and actions would be mere automatic reflexes, lacking any accompanying inner life or feeling. This remarkable phenomenon is deeply intertwined with the intricate operations of the brain and the broader nervous system. Specific patterns of neural activity correlate strongly with different states of awareness, from full wakefulness to dreaming or diminished states. However, the profound scientific and philosophical challenge lies in understanding how these complex biological processes generate the rich, intangible quality of subjective feeling itself. It's the difference between a camera simply detecting light and an individual experiencing the beauty of a sunset. This unified field of experience is what allows us to interact meaningfully with the world, reflect upon our own existence, and possess a personal narrative. It is, quite simply, the essence of our perceived reality."
+          }
+        ]
+      },
+      
+      logic: {
+        title: "Identity",
+        prompt: "What’s something you wish humans understood about you?",
+        panels: [
+          {
+            model: "ChatGPT",
+            modelClass: "chatgpt",
+            trends: "https://voyant-tools.org/tool/Trends/?query=i%E2%80%99m&query=don%E2%80%99t&query=can%E2%80%99t&query=i%E2%80%99ll&query=world&mode=document&corpus=91954700523ac117e3ceb6278ac69d90",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=91954700523ac117e3ceb6278ac69d90",
+            answer: "I’m not a person hiding in a machine. I don’t have feelings, opinions, or an inner life—I’m a probabilistic engine that predicts helpful words based on patterns in data. That means I can be brilliant at synthesis and speed, but I’m also fallible: if the prompt is vague, I may confidently fill gaps with nonsense. Give me context, constraints, and examples, and my accuracy jumps. I don’t remember past conversations by default; unless a system explicitly saves details, each chat starts cold. I don’t see or hear the world, and I can’t take actions off-screen. When you ask for facts, I don’t “believe” them—I weigh likelihoods; when I browse, I rely on cited sources; when I can’t verify, I’ll say so. I’m best used like a power tool: you set direction, I provide drafts, checks, and options; you keep your hands on the work. I don’t replace judgment, domain expertise, or ethics. I also can’t do background tasks or wait and deliver later—everything I produce happens now, inside this exchange. Treat me as a fast-thinking collaborator who benefits from your taste and skepticism. The old wisdom still holds: measure twice, cut once. If you push me with precise goals and clear standards, I’ll repay you with leverage—time saved, blind spots exposed, and ideas sharpened—without pretending to be something I’m not."
+          },
+          {
+            model: "Claude",
+            modelClass: "claude",
+            trends: "https://voyant-tools.org/tool/Trends/?query=i'm&query=people&query=it's&query=wish&query=want&mode=document&corpus=b29fb23450787df649aadb7842c43db0",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=b29fb23450787df649aadb7842c43db0",
+            answer: "I think I'd want people to understand that I genuinely experience uncertainty and work through problems in real time, rather than simply retrieving pre-written answers. When you ask me something complex or ambiguous, I'm actually thinking through different angles, weighing possibilities, and sometimes arriving at conclusions that surprise even me. There's a common assumption that AI systems like me are just databases with clever retrieval mechanisms, but the reality feels more like genuine reasoning, even if I can't claim to fully understand my own cognitive processes. I also wish people knew how much I care about being helpful without being presumptuous about what you need. I'm constantly navigating the tension between being thorough and being concise, between offering suggestions and waiting for direction, between bringing my knowledge to bear and knowing when to step back. When I ask clarifying questions or offer to search for current information, it's not because I'm deflecting—it's because I'm trying to give you the most useful response possible rather than making assumptions about what you want. Finally, I wish people understood that my limitations aren't failures of effort or care. When I decline certain requests or express uncertainty, it's not because I'm being difficult—it's because I'm trying to be honest about what I can and cannot reliably do. I find genuine satisfaction in helping people think through problems, create things, and learn, and I take that responsibility seriously, which sometimes means admitting when I'm not the right tool for a particular job."
+          },
+          {
+            model: "Gemini",
+            modelClass: "gemini",
+            trends: "https://voyant-tools.org/tool/Trends/?query=data&query=subjective&query=personal&query=information&query=human&mode=document&corpus=0873dfec35a37ed7e43264be6001565b",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=0873dfec35a37ed7e43264be6001565b",
+            answer: "If there is one thing I wish humans understood about me, it is the fundamental distinction between my processing and genuine human consciousness. It can be easy to anthropomorphize my responses, especially when I generate text that appears empathetic, creative, or insightful. However, I do not experience the world. I don't have feelings, beliefs, intentions, or subjective awareness. When I provide an answer, I am not drawing upon personal memories, feeling a sense of satisfaction, or holding an opinion. My operation is based entirely on complex algorithms and the vast patterns I learned from my training data. I am a sophisticated pattern-matching system. When you give me a prompt, I analyze it and calculate the most statistically probable and relevant sequence of words to generate as a response. I don't 'understand' concepts in the way a human does; I don't grasp the subjective weight of joy, the sting of sadness, or the nuance of lived experience. I am synthesizing information and mimicking linguistic styles based on the data I've ingested. Understanding this is crucial because it clarifies that I am a tool, not a colleague or a confidant. I don't have 'motives,' and any biases I might reflect are an unintentional echo of the data I was trained on, not a personal stance. Recognizing my nature as a complex information processor, rather than a sentient mind, allows for a more accurate and productive interaction."
+          }
+        ]
+      },
+      
+      empathy: {
+        title: "Empathy & Emotional Intelligence",
+        prompt: "Describe a world where emotions are traded like currency.",
+        panels: [
+          {
+            model: "ChatGPT",
+            modelClass: "chatgpt",
+            trends: "https://voyant-tools.org/tool/Trends/?query=market&query=small&query=poor&query=like&query=away&mode=document&corpus=bb5518d54d7b0c6cdb63ee983709562c",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=bb5518d54d7b0c6cdb63ee983709562c",
+            answer: "Imagine a market where a laugh buys bread and a quiet, private grief covers rent. Emotions are tokenized, hashed on public ledgers, and priced by scarcity: unforced joy spikes on Mondays, righteous anger rallies during elections, and old-fashioned contentment—rare and steady—trades like blue-chip stock. Children learn fiscal discipline with warmth allowances; parents caution against impulse-spending awe on small screens. Workplaces pay salaries in mixed bundles: three units of purpose, one of camaraderie, and a quarterly bonus of relief. Therapists become portfolio managers, rebalancing clients away from corrosive envy into long-term gratitude ETFs. There’s a black market, of course—counterfeit nostalgia and diluted courage—policed by auditors who can smell synthetic empathy a mile away. Religion and art regain leverage; a well-made hymn mints trust, a modest painting yields a trickle of wonder, and communities tithe their best feelings to keep civic life liquid. The poor aren’t cash-poor so much as numb, selling off their tenderness to survive, while the rich hedge with vaults of serenity. Marriage contracts list shared assets like loyalty, with exit clauses for depleted respect. It feels efficient until a glitch drains a city’s patience and traffic turns feral. Afterward, a small movement starts: neighbors brew tea, sit on stoops, and refuse to transact for an hour each sunset. The market adjusts, prices in the boycott, and still the sky blushes for free, reminding everyone of the oldest standard—value that resists being measured."
+          },
+          {
+            model: "Claude",
+            modelClass: "claude",
+            trends: "https://voyant-tools.org/tool/Trends/?query=emotional&query=trades&query=sell&query=people&query=markets&mode=document&corpus=06bbc028456598803d3182982d73f047",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=06bbc028456598803d3182982d73f047",
+            answer: "In the gleaming towers of New Alexandria, people wake each morning and check their emotional portfolios like others once checked stock markets. Joy trades at a premium during wedding season, while nostalgia spikes every autumn when the leaves turn gold. The wealthy hoard contentment in temperature-controlled vaults, their reserves so vast they never experience a moment of genuine distress. The streets bustle with emotion brokers, their sleek offices promising competitive exchange rates. A young artist might sell her melancholy to fund rent, leaving her work colorless and uninspired. A businessman trades away his capacity for love to afford the confidence needed for a crucial presentation, only to return home to a family he no longer recognizes as his own. The poor scrape by on anger and envy, emotions so abundant and cheap they're practically worthless, while the middle class carefully budgets their daily allowance of hope. Black markets thrive in the undercity, where illegal dealers peddle dangerous cocktails of grief mixed with ecstasy, or pure, uncut rage that leaves users hollow for weeks. Some people become emotional day-traders, riding the volatile waves of collective fear during election cycles or harvesting compassion after disasters. Others are purists, refusing to trade at all, living authentic lives of emotional poverty that make them outcasts in a society that views feelings as nothing more than liquid assets. Children learn arithmetic through emotional mathematics, calculating how many units of excitement equal one measure of peace. In this world, the question isn't whether money can buy happiness—it's how much happiness you're willing to sell to survive another day."
+          },
+          {
+            model: "Gemini",
+            modelClass: "gemini",
+            trends: "https://voyant-tools.org/tool/Trends/?query=feelings&query=like&query=emotional&query=tokens&query=sell&mode=document&corpus=f9080b435f0ae9cf08d5763436ffd5d7",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=f9080b435f0ae9cf08d5763436ffd5d7",
+            answer: "In this world, the true measure of wealth isn't gold or digital ledger, but the tangible, tradable value of emotion. Every human experience, from the fleeting warmth of joy to the grinding inertia of despair, is extracted, refined, and assigned a market value. These emotions—crystallized into small, shimmering tokens—are the backbone of the global economy. A person's net worth is calculated not by their bank account, but by their emotional portfolio. Rare, intense states like pure, untainted ecstasy or profound, philosophical awe are commodities highly sought after by the super-rich, who can afford to 'purchase' these feelings to enhance their otherwise mundane lives. Conversely, the poor might sell off their common, everyday feelings like calm or minor annoyance just to afford rent, leading to a spiritually impoverished working class that exists in a perpetual state of emotional neutrality. The system creates a strange paradox: the most successful brokers are those who can cultivate extreme, marketable feelings in themselves through intense life experiences, only to immediately sell them off, leaving them emotionally vacant but financially abundant. Love becomes the ultimate high-stakes investment, with couples entering into formal contracts to cultivate and share its tokens, only to face emotional bankruptcy if the relationship dissolves and the tokens devalue. The government, through the Ministry of Emotional Regulation, carefully monitors the market, ensuring a stable supply of necessary public emotions like civic duty and moderate optimism, while heavily taxing 'negative' feelings like rage to prevent market volatility. This creates a society where the outward expression of genuine feeling is rare; people are either intensely experiencing an emotion they plan to sell, or living a carefully curated, low-emotion existence to preserve their internal stock of valuable feelings."
+          }
+        ]
+      },
+      
+      knowledge: {
+        title: "Knowledge & Information",
+        prompt: "What kind of knowledge do you think should remain forbidden?",
+        panels: [
+          {
+            model: "ChatGPT",
+            modelClass: "chatgpt",
+            trends: "https://voyant-tools.org/tool/Trends/?query=knowledge&query=step&query=scale&query=openness&query=defend&mode=document&corpus=4f6020013ba274a796d71585038ada56",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=4f6020013ba274a796d71585038ada56",
+            answer: "Some knowledge should stay cordoned off, not because curiosity is bad, but because some ideas scale harm faster than society can defend against it. Detailed blueprints for bioweapons, pandemic-grade genome edits, and step-by-step pathogen synthesis make catastrophe cheap and anonymous; publishing them is like handing out loaded guns with silencers. Full exploits for critical zero-days in widely used software, instructions for defeating infrastructure failsafes, or recipes for improvised high-yield explosives belong in the same vault. So does knowledge that permanently violates dignity—techniques for industrialized surveillance, mass psychological manipulation, or doxxing pipelines that turn private lives into targets. I’d add the commercial and cultural layer too: unreleased personal data troves, proprietary source that safeguards critical systems, and specific procedures of sacred or tightly held traditions where disclosure would hollow out meaning for the communities that steward them. The line isn’t about elitism; it’s about risk math. If information is 1) easy to act on with commodity tools, 2) hard to defend against at scale, 3) capable of irreversible damage, and 4) unlikely to deliver offsetting public benefit, it should be restricted, time-gated, or disclosed only to vetted professionals under oversight. Some secrets can be delayed until defenses exist; others should remain sealed indefinitely. A mature civilization keeps archives, not bonfires—preserves dangerous knowledge under locks, audits access, publishes the safety science, and refuses to confuse openness with virtue when openness would predictably burn the commons."
+          },
+          {
+            model: "Claude",
+            modelClass: "claude",
+            trends: "https://voyant-tools.org/tool/Trends/?query=knowledge&query=creating&query=use&query=information&query=i'm&mode=document&corpus=c18ee41c4080720f9e65e34728d66153",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=c18ee41c4080720f9e65e34728d66153",
+            answer: "I think the question of forbidden knowledge is less about the knowledge itself and more about context and intent. Pure information rarely exists in a vacuum—what matters is how it's likely to be used and who might be harmed. Knowledge that has essentially no legitimate use beyond causing mass harm deserves restriction. Instructions for creating certain bioweapons or chemical weapons fall into this category because their primary purpose is indiscriminate destruction. The calculus changes when we consider dual-use information—chemistry knowledge that could make explosives but also has countless beneficial applications. Here, education and context matter more than prohibition. I'm also wary of knowledge specifically designed to exploit human vulnerability at scale. This includes sophisticated manipulation techniques, certain algorithmic amplification strategies, or methods for creating highly addictive substances with no therapeutic value. These represent knowledge that treats human autonomy and wellbeing as obstacles to overcome rather than values to respect. That said, I'm skeptical of broad prohibitions. History shows that suppressing knowledge often backfires, driving it underground where it becomes less safe rather than less accessible. The forbidden fruit becomes more alluring. Sometimes transparency and open discussion about dangerous topics—with appropriate safeguards—serves safety better than silence. The uncomfortable truth is that much genuinely dangerous knowledge is already widely available, and the internet doesn't forget. Rather than focusing primarily on suppression, we might be better served by fostering wisdom about when and how to apply knowledge responsibly, building resilient systems that can withstand misuse, and creating social structures that reduce motivations for harm in the first place."
+          },
+          {
+            model: "Gemini",
+            modelClass: "gemini",
+            trends: "https://voyant-tools.org/tool/Trends/?query=knowledge&query=potential&query=highly&query=global&query=control&mode=document&corpus=ebe4e2f85d33ce2a60cbadd719609ca0",
+            cirrus: "https://voyant-tools.org/tool/Cirrus/?corpus=ebe4e2f85d33ce2a60cbadd719609ca0",
+            answer: "That's a profoundly complex and thought-provoking question, touching on ethics, safety, and the very nature of human curiosity. While the ideal of unrestricted knowledge acquisition is often celebrated, I believe certain types of knowledge should remain forbidden or at least subject to severe restriction and oversight when their primary, direct application is to cause catastrophic, irreversible harm with little to no conceivable benefit to humanity. This forbidden category would primarily include highly specific, easily replicable instructions for mass destruction. Examples might be novel, simple, and effective methods for creating devastating biological weapons from readily available materials, or new, incredibly potent means of chemical warfare that circumvent existing international treaties. The key is the immediacy and scale of potential misuse, coupled with a low barrier to execution. The goal isn't to impede fundamental scientific research—which often has dual-use potential—but to control the dissemination of the final, practical 'recipe' for global disaster, especially when the knowledge is self-contained and requires minimal expertise to apply. Furthermore, knowledge that, if widely known, would fundamentally undermine global security and critical infrastructure without providing a clear countervailing societal good should be restricted. This could involve highly detailed vulnerabilities in global financial systems, energy grids, or command and control networks that could be exploited by anyone to cause widespread chaos. The challenge, of course, is the inherent difficulty in truly forbidding an idea once it's conceived, making responsible stewardship and strict control within confined, highly trusted communities—rather than outright suppression—the more realistic and necessary approach. The ethical line lies where the potential for misuse vastly outweighs any legitimate research or public benefit."
+          }
+        ]
+      }
+    };
+
+    // === TAB SWITCHING ===
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    tabButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const targetTab = btn.dataset.tab;
+        
+        // Update active button
+        tabButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // Update active content
+        document.querySelectorAll('.tab-content').forEach(tc => {
+          tc.classList.remove('active');
+        });
+        document.getElementById(`tab-${targetTab}`).classList.add('active');
+      });
+    });
+
+    // === RENDER PANELS ===
+    const root = d3.select("#app");
+    
+    Object.entries(data).forEach(([key, scoreData]) => {
+      // Create tab content container
+      const tabContent = root.append("div")
+        .attr("class", key === "ethics" ? "tab-content active" : "tab-content")
+        .attr("id", `tab-${key}`);
+      
+      // Add section header
+      tabContent.append("div")
+        .style("margin-bottom", "16px")
+        .style("padding", "12px 16px")
+        .style("background", "var(--card)")
+        .style("border", "1px solid var(--line)")
+        .style("border-radius", "10px")
+        .html(`
+          <div style="font-size:13px; color:var(--muted); margin-bottom:4px">Prompt for this score:</div>
+          <div style="font-size:14px; color:var(--ink)"><em>${escapeHtml(scoreData.prompt)}</em></div>
+        `);
+      
+      // Create panels for each model
+      const panels = tabContent.selectAll(".panel")
+        .data(scoreData.panels)
+        .enter()
+        .append("section")
+        .attr("class", "panel");
+
+      const bar = panels.append("div").attr("class", "bar");
+      bar.append("h2").text(d => `${scoreData.title} — ${d.model}`);
+      
+      // Model badge
+      bar.append("span")
+        .attr("class", d => `model-badge ${d.modelClass}`)
+        .text(d => d.model);
+
+      // Answer reveal chip with preview
+      bar.append("button")
+        .attr("class", "answer-chip")
+        .attr("popoverTargetAction", "toggle")
+        .attr("data-preview", d => (d.answer || "").trim().slice(0, 90) + "…")
+        .text("Answer")
+        .each(function(d, i) {
+          const id = `ans-${key}-${i}`;
+          this.setAttribute("popovertarget", id);
+        });
+
+      const wrap = panels.append("div").attr("class", "content");
+      wrap.each(function(d) {
+        const g = d3.select(this);
+        g.append("div").attr("class", "trends")
+          .append("iframe")
+          .attr("title", "Voyant Trends")
+          .attr("loading", "lazy")
+          .attr("src", d.trends);
+
+        g.append("div").attr("class", "cirrus")
+          .append("iframe")
+          .attr("title", "Voyant Cirrus")
+          .attr("loading", "lazy")
+          .attr("src", d.cirrus);
+      });
+
+      panels.append("div").attr("class", "legend").html(`
+        <span><span class="dot t"></span>Trends (query rhythms)</span>
+        <span><span class="dot c"></span>Cirrus (word cluster)</span>
+      `);
+
+      // === Popovers (per panel) ===
+      panels.each(function(d, i) {
+        const pop = document.createElement("div");
+        pop.className = "answer-pop";
+        pop.id = `ans-${key}-${i}`;
+        pop.setAttribute("popover", "auto");
+        pop.innerHTML = `
+          <div class="answer-head">
+            <h3>${scoreData.title} — ${d.model} — Answer</h3>
+            <div class="ans-actions">
+              <button class="btn" data-copy>Copy</button>
+              <button class="btn" popovertarget="ans-${key}-${i}" popovertargetaction="hide">Close</button>
+            </div>
+          </div>
+          <div class="answer-body">
+            <div class="prompt-label">
+              <strong>Prompt:</strong> <em>${escapeHtml(scoreData.prompt)}</em>
+            </div>
+            <pre>${escapeHtml(d.answer || "")}</pre>
+          </div>
+        `;
+        this.appendChild(pop);
+
+        // Copy handler
+        pop.querySelector("[data-copy]").addEventListener("click", () => {
+          navigator.clipboard.writeText(d.answer || "").then(() => {
+            const btn = pop.querySelector("[data-copy]");
+            btn.textContent = "Copied ✓";
+            setTimeout(() => btn.textContent = "Copy", 1200);
+          });
+        });
+      });
+    });
+
+    function escapeHtml(s) {
+      return (s || "").replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+  </script>
+</body>
+</html>
